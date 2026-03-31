@@ -28,6 +28,12 @@ Transparently hijack any TCP traffic hitting Port 80 and shove it into Port 8080
 * **Success:** Environment is now 100% stable. Building natively on Ubuntu 24.04.
 * **Lose:** Lost all commits from the Mac. Restarting the logs here.
 
+### Hour 6: The "In-Progress" Ingress
+* **The Goal:** Get the 80 -> 8080 redirection logic into the kernel.
+* **The Implementation:** - Manually parsed Ethernet/IP/TCP headers using pointer arithmetic.
+    - Used `bpf_l4_csum_replace` to fix the TCP checksum after the port rewrite.
+* **The Status:** **Functional Success.** The code compiles natively (albeit a bunch of warnings; to be fixed in next commit hopefully) and the logic looks sound.
+
 ##  Architecture
 - **Ingress Hook:** Rewrites Dest Port 80 -> 8080 (DNAT).
 - **Egress Hook:** Rewrites Src Port 8080 -> 80 (SNAT).
