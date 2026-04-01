@@ -42,7 +42,7 @@ Transparently hijack any TCP traffic hitting Port 80 and shove it into Port 8080
 
 ## Day 2: The Orchestration Layer
 
-### ### Hour 14: Hardening the User-Space Loader
+### Hour 14: Hardening the User-Space Loader
 * **The Goal:** Build a orchestrator to manage the kernel-to-user-space lifecycle.
 * **The Implementation:**
     * **Dual TC Attachment:** Simultaneously loaded and attached both `certes_ingress` and `certes_egress` to create a complete, bidirectional NAT loop.
@@ -50,6 +50,16 @@ Transparently hijack any TCP traffic hitting Port 80 and shove it into Port 8080
     * **Graceful Lifecycle:** Implemented `tokio` signal handling to ensure hooks are cleanly detached from the interface upon terminal exit (Ctrl-C).
     * **Operational Bridge:** Integrated `aya-log` to pipe kernel-level visibility directly into the user-space console.
 * **The Result:** Verified full-stack 80 <-> 8080 redirection on the loopback interface with a single command. **Day 2 Infrastructure: Online.**
+
+### Hour 22: Redirection Stability & Trace Logging
+* **The Goal:** Deliver a redirection engine that meets the "metadata logging" requirement.
+* **The Implementation:**
+    * **Mapless Architecture:** Transitioned to `bpf_printk` for metadata logging. By eliminating BPF maps, we resolved the `os error 9` relocation conflicts caused by aya logs
+    * **Kernel-Level Auditing:** Metadata is now streamed directly to the kernel's debug buffer, providing a high-performance audit trail with zero user-space overhead.
+* **Post-Mortem:** Failed Logging Approaches. 
+ We attempted metadata aggregation via BPF HashMaps and streaming via aya-log, but both triggered os error 9 (Bad file descriptor) due to toolchain drift and map relocation conflicts. The verifier also rejected post-helper pointer usage, forcing a pivot to mapless bpf_printk to ensure immediate stability and bypass relocation failures.
+* **The Result:** Full bidirectional 80 <-> 8080 redirection is operational. 
+* **Observation:** Logs can be viewed in real-time via: `sudo cat /sys/kernel/debug/tracing/trace_pipe`.
 
 ##  Architecture
 - **Ingress Hook:** Rewrites Dest Port 80 -> 8080 (DNAT).

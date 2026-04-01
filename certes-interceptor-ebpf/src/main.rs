@@ -5,7 +5,7 @@ use aya_ebpf::{
     bindings::TC_ACT_OK,
     macros::classifier,
     programs::TcContext,
-    helpers::bpf_l4_csum_replace,
+    helpers::{bpf_l4_csum_replace, bpf_printk},
 };
 use core::mem;
 
@@ -32,11 +32,14 @@ pub fn certes_ingress(ctx: TcContext) -> i32 {
 fn try_certes_ingress(ctx: TcContext) -> Result<(), ()> {
     if !is_ipv4_tcp(&ctx)? { return Ok(()); }
     let tcp_dest_off = 14 + 20 + 2; 
-    let dest_port = unsafe { *ptr_at::<u16>(&ctx, tcp_dest_off)? };
+    let port_ptr = unsafe { ptr_at::<u16>(&ctx, tcp_dest_off)? } as *mut u16;
+    let dest_port = unsafe { *port_ptr };
 
     if dest_port == PORT_80 {
+        // METADATA LOGGING: bpf_printk uses the kernel trace buffer.
+        // No maps required = no relocation errors.
         unsafe {
-            let port_ptr = (ctx.data() + tcp_dest_off) as *mut u16;
+            bpf_printk!(b"REDIRECT: 80 -> 8080");
             *port_ptr = PORT_8080;
             bpf_l4_csum_replace(ctx.skb.skb, 14 + 20 + 16, dest_port as u64, PORT_8080 as u64, 2 | (1 << 4));
         }
@@ -53,11 +56,12 @@ pub fn certes_egress(ctx: TcContext) -> i32 {
 fn try_certes_egress(ctx: TcContext) -> Result<(), ()> {
     if !is_ipv4_tcp(&ctx)? { return Ok(()); }
     let tcp_src_off = 14 + 20; 
-    let src_port = unsafe { *ptr_at::<u16>(&ctx, tcp_src_off)? };
+    let port_ptr = unsafe { ptr_at::<u16>(&ctx, tcp_src_off)? } as *mut u16;
+    let src_port = unsafe { *port_ptr };
 
     if src_port == PORT_8080 {
         unsafe {
-            let port_ptr = (ctx.data() + tcp_src_off) as *mut u16;
+            bpf_printk!(b"REVERT: 8080 -> 80");
             *port_ptr = PORT_80;
             bpf_l4_csum_replace(ctx.skb.skb, 14 + 20 + 16, src_port as u64, PORT_80 as u64, 2 | (1 << 4));
         }
