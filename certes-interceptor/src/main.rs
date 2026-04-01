@@ -1,7 +1,8 @@
-use aya::programs::{SchedClassifier, TcAttachType, tc};
+use aya::programs::{tc, SchedClassifier, TcAttachType};
+use aya::{include_bytes_aligned, Ebpf};
+use aya_log::EbpfLogger;
 use clap::Parser;
-#[rustfmt::skip]
-use log::{debug, warn};
+use log::{info, warn};
 use tokio::signal;
 
 #[derive(Debug, Parser)]
@@ -11,59 +12,50 @@ struct Opt {
 }
 
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
+async fn main() -> Result<(), anyhow::Error> {
     let opt = Opt::parse();
-
+    
+    // Initialize host logging (Standard Output)
     env_logger::init();
 
-    // Bump the memlock rlimit. This is needed for older kernels that don't use the
-    // new memcg based accounting, see https://lwn.net/Articles/837122/
-    let rlim = libc::rlimit {
-        rlim_cur: libc::RLIM_INFINITY,
-        rlim_max: libc::RLIM_INFINITY,
-    };
-    let ret = unsafe { libc::setrlimit(libc::RLIMIT_MEMLOCK, &rlim) };
-    if ret != 0 {
-        debug!("remove limit on locked memory failed, ret is: {ret}");
+    // 1. Load the eBPF bytecode
+    // We point to the specific cross-compiled BPF artifact
+    let mut bpf = Ebpf::load(include_bytes_aligned!(
+        "../../target/bpfel-unknown-none/release/certes-interceptor"
+    ))?;
+
+    // 2. Initialize Kernel Logging (aya-log)
+    // This allows info! and debug! macros in the EBPF code to show up here
+    if let Err(e) = EbpfLogger::init(&mut bpf) {
+        warn!("failed to initialize eBPF logger: {}", e);
     }
 
-    // This will include your eBPF object file as raw bytes at compile-time and load it at
-    // runtime. This approach is recommended for most real-world use cases. If you would
-    // like to specify the eBPF program at runtime rather than at compile-time, you can
-    // reach for `Bpf::load_file` instead.
-    let mut ebpf = aya::Ebpf::load(aya::include_bytes_aligned!(concat!(
-        env!("OUT_DIR"),
-        "/certes-interceptor"
-    )))?;
-    match aya_log::EbpfLogger::init(&mut ebpf) {
-        Err(e) => {
-            // This can happen if you remove all log statements from your eBPF program.
-            warn!("failed to initialize eBPF logger: {e}");
-        }
-        Ok(logger) => {
-            let mut logger =
-                tokio::io::unix::AsyncFd::with_interest(logger, tokio::io::Interest::READABLE)?;
-            tokio::task::spawn(async move {
-                loop {
-                    let mut guard = logger.readable_mut().await.unwrap();
-                    guard.get_inner_mut().flush();
-                    guard.clear_ready();
-                }
-            });
-        }
-    }
-    let Opt { iface } = opt;
-    // error adding clsact to the interface if it is already added is harmless
-    // the full cleanup can be done with 'sudo tc qdisc del dev eth0 clsact'.
-    let _ = tc::qdisc_add_clsact(&iface);
-    let program: &mut SchedClassifier = ebpf.program_mut("certes_interceptor").unwrap().try_into()?;
-    program.load()?;
-    program.attach(&iface, TcAttachType::Ingress)?;
+    // 3. Prepare the Interface
+    // 'clsact' is the required queueing discipline for TC eBPF programs
+    let _ = tc::qdisc_add_clsact(&opt.iface);
+    info!("Initialized clsact on interface: {}", opt.iface);
 
-    let ctrl_c = signal::ctrl_c();
-    println!("Waiting for Ctrl-C...");
-    ctrl_c.await?;
-    println!("Exiting...");
+    // 4. Attach Ingress (Redirect: 80 -> 8080)
+    let ingress_prog: &mut SchedClassifier = bpf.program_mut("certes_ingress")
+        .expect("Program 'certes_ingress' not found")
+        .try_into()?;
+    ingress_prog.load()?;
+    ingress_prog.attach(&opt.iface, TcAttachType::Ingress)?;
+    info!("Attached Ingress Hook (80 -> 8080)");
+
+    // 5. Attach Egress (Reverse: 8080 -> 80)
+    let egress_prog: &mut SchedClassifier = bpf.program_mut("certes_egress")
+        .expect("Program 'certes_egress' not found")
+        .try_into()?;
+    egress_prog.load()?;
+    egress_prog.attach(&opt.iface, TcAttachType::Egress)?;
+    info!("Attached Egress Hook (8080 -> 80)");
+
+    info!("Interceptor active. Press Ctrl-C to terminate and detach hooks.");
+
+    // 6. Graceful Shutdown
+    signal::ctrl_c().await?;
+    info!("Ctrl-C received. Detaching programs and exiting...");
 
     Ok(())
 }

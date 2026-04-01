@@ -40,6 +40,17 @@ Transparently hijack any TCP traffic hitting Port 80 and shove it into Port 8080
 * **The Safety:** Upgraded to Rust 2024 safety standards. All `unsafe` operations are now explicitly scoped, and pointer arithmetic is verified through unit tests that simulate packet boundary conditions.
 * **Status:** **Day 1 MVP Complete.** Bidirectional redirection is functional, verified, and warning-free.
 
+## Day 2: The Orchestration Layer
+
+### ### Hour 14: Hardening the User-Space Loader
+* **The Goal:** Build a orchestrator to manage the kernel-to-user-space lifecycle.
+* **The Implementation:**
+    * **Dual TC Attachment:** Simultaneously loaded and attached both `certes_ingress` and `certes_egress` to create a complete, bidirectional NAT loop.
+    * **Networking Qdisc Management:** Automated the initialization of the **`clsact`** queuing discipline on the target interface, ensuring the environment is prepared for eBPF attachment.
+    * **Graceful Lifecycle:** Implemented `tokio` signal handling to ensure hooks are cleanly detached from the interface upon terminal exit (Ctrl-C).
+    * **Operational Bridge:** Integrated `aya-log` to pipe kernel-level visibility directly into the user-space console.
+* **The Result:** Verified full-stack 80 <-> 8080 redirection on the loopback interface with a single command. **Day 2 Infrastructure: Online.**
+
 ##  Architecture
 - **Ingress Hook:** Rewrites Dest Port 80 -> 8080 (DNAT).
 - **Egress Hook:** Rewrites Src Port 8080 -> 80 (SNAT).
