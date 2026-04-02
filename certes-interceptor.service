@@ -1,0 +1,20 @@
+[Unit]
+Description=Certes Network Interceptor (eBPF NAT)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Path to release binary
+ExecStart=/usr/local/bin/certes-interceptor --iface lo
+# Restart on failure or after a crash
+Restart=always
+RestartSec=5
+# Should use Capability limiting instead of full root
+# For now, we'll run as root for BPF attachment permissions
+User=root
+# Environment variables for logging
+Environment=RUST_LOG=info
+
+[Install]
+WantedBy=multi-user.target

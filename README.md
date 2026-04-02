@@ -61,6 +61,15 @@ Transparently hijack any TCP traffic hitting Port 80 and shove it into Port 8080
 * **The Result:** Full bidirectional 80 <-> 8080 redirection is operational. 
 * **Observation:** Logs can be viewed in real-time via: `sudo cat /sys/kernel/debug/tracing/trace_pipe`.
 
+## Day 3: Service Hardening & Persistence
+
+### Hour 24: Systemd Integration (Always-On)
+* **The Goal:** Ensure the interceptor is always on and survives system reboots.
+* **The Implementation:**
+    * **Service Unit:** Created a **systemd** service to manage the lifecycle of the eBPF loader.
+    * **Automation:** Developed a **Makefile** to unify the cross-compilation and installation process.
+* **The Result:** The module is now a managed system utility. Persistence is 100% achieved.
+
 ##  Architecture
 - **Ingress Hook:** Rewrites Dest Port 80 -> 8080 (DNAT).
 - **Egress Hook:** Rewrites Src Port 8080 -> 80 (SNAT).
