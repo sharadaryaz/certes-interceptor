@@ -11,6 +11,18 @@ Transparently hijack any TCP traffic hitting Port 80 and shove it into Port 8080
 
 * TC (Traffic Control) hooks (XDP is fast, but TC is smarter for local delivery, or maybe that is what I just learned).
 
+## Documentation
+
+For a deep dive into the technical architecture, challenges faced, and design trade-offs made during this project, please refer to the design document:
+
+* [**Design & Architecture Guide (DESIGN.md)**](./DESIGN.md)
+
+## Operational Commands
+
+* **Deployment**: Managed via **Systemd** for "always-on" persistence.
+* **Loader Logs**: Viewable via `sudo journalctl -u certes-interceptor -f`.
+* **Packet Metadata**: Streamed to the kernel trace pipe; viewable via `sudo cat /sys/kernel/debug/tracing/trace_pipe`.
+
 ##  The "War Log" (Day 1)
 
 ### Hour 0-3: The Mac Linker War
