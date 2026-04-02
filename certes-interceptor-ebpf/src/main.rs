@@ -9,8 +9,28 @@ use aya_ebpf::{
 };
 use core::mem;
 
+// --- Constants & Magic Numbers ---
+const ETH_P_IP: u16 = 0x0800;
+const IPPROTO_TCP: u8 = 6;
+
 const PORT_80: u16 = 80u16.to_be();
 const PORT_8080: u16 = 8080u16.to_be();
+
+// bpf_l4_csum_replace flags
+const BPF_F_PSEUDO_HDR: u64 = 1 << 4;
+const CSUM_FIELD_SIZE_U16: u64 = 2;
+const TCP_CSUM_FLAGS: u64 = CSUM_FIELD_SIZE_U16 | BPF_F_PSEUDO_HDR;
+
+// Header Lengths
+const ETH_HLEN: usize = mem::size_of::<ethhdr>();
+const IP_HLEN: usize = mem::size_of::<iphdr>();
+
+// Explicit Offsets for Readability
+const ETH_PROTO_OFF: usize = 12; // Offset to h_proto in ethhdr
+const IP_PROTO_OFF: usize = ETH_HLEN + 9; // Offset to proto in iphdr
+const TCP_SRC_PORT_OFF: usize = ETH_HLEN + IP_HLEN + 0;
+const TCP_DEST_PORT_OFF: usize = ETH_HLEN + IP_HLEN + 2;
+const TCP_CHECK_OFF: usize = ETH_HLEN + IP_HLEN + 16;
 
 #[allow(dead_code)]
 #[repr(C)]
@@ -19,6 +39,7 @@ struct ethhdr {
     h_source: [u8; 6],
     h_proto: u16,
 }
+
 #[allow(dead_code)]
 #[repr(C)]
 struct iphdr {
@@ -33,6 +54,7 @@ struct iphdr {
     saddr: u32,
     daddr: u32,
 }
+
 #[allow(dead_code)]
 #[repr(C)]
 struct tcphdr {
@@ -56,22 +78,22 @@ fn try_certes_ingress(ctx: TcContext) -> Result<(), ()> {
     if !is_ipv4_tcp(&ctx)? {
         return Ok(());
     }
-    let tcp_dest_off = 14 + 20 + 2;
-    let port_ptr = unsafe { ptr_at::<u16>(&ctx, tcp_dest_off)? } as *mut u16;
+
+    let port_ptr = unsafe { ptr_at::<u16>(&ctx, TCP_DEST_PORT_OFF)? } as *mut u16;
     let dest_port = unsafe { *port_ptr };
 
     if dest_port == PORT_80 {
-        // METADATA LOGGING: bpf_printk uses the kernel trace buffer.
-        // No maps required = no relocation errors.
         unsafe {
             bpf_printk!(b"REDIRECT: 80 -> 8080");
             *port_ptr = PORT_8080;
+
+            // Adjust checksum for the 2-byte port change
             bpf_l4_csum_replace(
                 ctx.skb.skb,
-                14 + 20 + 16,
+                TCP_CHECK_OFF.try_into().unwrap(),
                 dest_port as u64,
                 PORT_8080 as u64,
-                2 | (1 << 4),
+                TCP_CSUM_FLAGS,
             );
         }
     }
@@ -88,20 +110,21 @@ fn try_certes_egress(ctx: TcContext) -> Result<(), ()> {
     if !is_ipv4_tcp(&ctx)? {
         return Ok(());
     }
-    let tcp_src_off = 14 + 20;
-    let port_ptr = unsafe { ptr_at::<u16>(&ctx, tcp_src_off)? } as *mut u16;
+
+    let port_ptr = unsafe { ptr_at::<u16>(&ctx, TCP_SRC_PORT_OFF)? } as *mut u16;
     let src_port = unsafe { *port_ptr };
 
     if src_port == PORT_8080 {
         unsafe {
             bpf_printk!(b"REVERT: 8080 -> 80");
             *port_ptr = PORT_80;
+
             bpf_l4_csum_replace(
                 ctx.skb.skb,
-                14 + 20 + 16,
+                TCP_CHECK_OFF.try_into().unwrap(),
                 src_port as u64,
                 PORT_80 as u64,
-                2 | (1 << 4),
+                TCP_CSUM_FLAGS,
             );
         }
     }
@@ -110,26 +133,26 @@ fn try_certes_egress(ctx: TcContext) -> Result<(), ()> {
 
 #[inline(always)]
 fn is_ipv4_tcp(ctx: &TcContext) -> Result<bool, ()> {
-    let eth_proto = u16::from_be(unsafe { *ptr_at::<u16>(ctx, 12)? });
-    if eth_proto != 0x0800 {
+    let eth_proto = u16::from_be(unsafe { *ptr_at::<u16>(ctx, ETH_PROTO_OFF)? });
+    if eth_proto != ETH_P_IP {
         return Ok(false);
     }
-    let ip_proto = unsafe { *ptr_at::<u8>(ctx, 14 + 9)? };
-    Ok(ip_proto == 6)
+
+    let ip_proto = unsafe { *ptr_at::<u8>(ctx, IP_PROTO_OFF)? };
+    Ok(ip_proto == IPPROTO_TCP)
 }
 
-/// Core memory safety logic. Tested on host, executed in kernel.
+// --- Memory Safety Helpers ---
+
 #[inline(always)]
 unsafe fn check_bounds<T>(start: usize, end: usize, offset: usize) -> Result<*const T, ()> {
     let len = mem::size_of::<T>();
-    // The exact check the eBPF verifier requires
     if start + offset + len > end {
         return Err(());
     }
     Ok((start + offset) as *const T)
 }
 
-/// Kernel-specific wrapper
 #[inline(always)]
 unsafe fn ptr_at<T>(ctx: &TcContext, offset: usize) -> Result<*const T, ()> {
     unsafe { check_bounds::<T>(ctx.data(), ctx.data_end(), offset) }
@@ -140,7 +163,6 @@ unsafe fn ptr_at<T>(ctx: &TcContext, offset: usize) -> Result<*const T, ()> {
 fn panic(_info: &core::panic::PanicInfo) -> ! {
     unsafe { core::hint::unreachable_unchecked() }
 }
-
 #[cfg(test)]
 mod tests {
 
