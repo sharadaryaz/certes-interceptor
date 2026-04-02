@@ -38,6 +38,8 @@ make install
 * Moves the binary to `/usr/local/bin/`.
 * Installs and starts a **systemd** service (`certes-interceptor.service`).
 
+<img width="933" height="365" alt="Screenshot 2026-04-02 at 11 15 22 PM" src="https://github.com/user-attachments/assets/d728776e-38cb-40da-af99-cf0a476f167c" />
+
 ### 3. Monitoring & Logs
 
 Logs are split between orchestration (service status) and packet metadata (real-time interception) to maintain a clean audit trail.
