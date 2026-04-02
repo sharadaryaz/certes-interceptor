@@ -1,5 +1,5 @@
-use aya::programs::{tc, SchedClassifier, TcAttachType};
-use aya::{include_bytes_aligned, Ebpf};
+use aya::programs::{SchedClassifier, TcAttachType, tc};
+use aya::{Ebpf, include_bytes_aligned};
 use aya_log::EbpfLogger;
 use clap::Parser;
 use log::{info, warn};
@@ -14,7 +14,7 @@ struct Opt {
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
     let opt = Opt::parse();
-    
+
     // Initialize host logging (Standard Output)
     env_logger::init();
 
@@ -36,7 +36,8 @@ async fn main() -> Result<(), anyhow::Error> {
     info!("Initialized clsact on interface: {}", opt.iface);
 
     // 4. Attach Ingress (Redirect: 80 -> 8080)
-    let ingress_prog: &mut SchedClassifier = bpf.program_mut("certes_ingress")
+    let ingress_prog: &mut SchedClassifier = bpf
+        .program_mut("certes_ingress")
         .expect("Program 'certes_ingress' not found")
         .try_into()?;
     ingress_prog.load()?;
@@ -44,7 +45,8 @@ async fn main() -> Result<(), anyhow::Error> {
     info!("Attached Ingress Hook (80 -> 8080)");
 
     // 5. Attach Egress (Reverse: 8080 -> 80)
-    let egress_prog: &mut SchedClassifier = bpf.program_mut("certes_egress")
+    let egress_prog: &mut SchedClassifier = bpf
+        .program_mut("certes_egress")
         .expect("Program 'certes_egress' not found")
         .try_into()?;
     egress_prog.load()?;
