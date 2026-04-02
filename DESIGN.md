@@ -49,3 +49,5 @@ With additional development time, the following enhancements would be prioritize
 * **Map Infrastructure Recovery**: Resolving BTF (BPF Type Format) generation issues to restore structured user-space dashboards.
 * **Performance Profiling**: Using `bpftrace` to quantify the exact nanosecond latency added per packet.
 
+---
+[← Back to README](./README.md)

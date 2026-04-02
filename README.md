@@ -11,17 +11,68 @@ Transparently hijack any TCP traffic hitting Port 80 and shove it into Port 8080
 
 * TC (Traffic Control) hooks (XDP is fast, but TC is smarter for local delivery, or maybe that is what I just learned).
 
+
+## User Guide:
+
+This project is implemented as a managed Linux system service. The following steps guide you through the build, installation, and monitoring processes.
+
+### 1. Prerequisites
+
+Ensure the following are installed on the target system:
+* **Rust (Nightly):** Required for eBPF compilation (`rustup toolchain install nightly`).
+* **Bpf-linker:** `cargo install bpf-linker`.
+* **Standard Build Tools:** `make`, `sudo`, and a Linux kernel (5.4+ recommended).
+
+### 2. Installation
+
+The included `Makefile` automates the cross-compilation and deployment process. From the repository root, run:
+
+```bash
+# Build both eBPF and Loader, then install as a system service
+make install
+```
+
+**What this does:**
+* Compiles the eBPF kernel bytecode.
+* Builds the Rust user-space orchestrator.
+* Moves the binary to `/usr/local/bin/`.
+* Installs and starts a **systemd** service (`certes-interceptor.service`).
+
+### 3. Monitoring & Logs
+
+Logs are split between orchestration (service status) and packet metadata (real-time interception) to maintain a clean audit trail.
+
+#### **A. Service & Orchestration Logs**
+To verify the service is running and to see the eBPF attachment status, use `journalctl`:
+
+```bash
+# View the live loader logs
+sudo journalctl -u certes-interceptor -f
+```
+
+#### **B. Packet Redirection Logs**
+Packet-level metadata (Source IP, Port swaps) is streamed directly to the kernel's trace buffer for maximum performance. To view these events in real-time, run:
+
+```bash
+# View the live packet redirection events
+sudo cat /sys/kernel/debug/tracing/trace_pipe
+```
+
+### 4. Management
+
+The interceptor is managed like any standard system service:
+
+* **Stop:** `sudo systemctl stop certes-interceptor`
+* **Restart:** `sudo systemctl restart certes-interceptor`
+* **Uninstall:** `sudo systemctl disable certes-interceptor && sudo rm /etc/systemd/system/certes-interceptor.service`
+
+---
+
 ## Documentation
 
 For a deep dive into the technical architecture, challenges faced, and design trade-offs made during this project, please refer to the design document:
 
 * [**Design & Architecture Guide (DESIGN.md)**](./DESIGN.md)
-
-## Operational Commands
-
-* **Deployment**: Managed via **Systemd** for "always-on" persistence.
-* **Loader Logs**: Viewable via `sudo journalctl -u certes-interceptor -f`.
-* **Packet Metadata**: Streamed to the kernel trace pipe; viewable via `sudo cat /sys/kernel/debug/tracing/trace_pipe`.
 
 ##  The "War Log" (Day 1)
 
